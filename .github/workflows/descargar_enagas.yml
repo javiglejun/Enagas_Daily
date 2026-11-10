@@ -1,7 +1,6 @@
 name: Actualizar histórico del sistema gasista
 
 on:
-
   workflow_dispatch:
 
   schedule:
@@ -15,19 +14,18 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-
   actualizar:
 
     runs-on: ubuntu-latest
 
-    # La primera ejecución descargará desde 01/01/2025.
-    # Por tanto, permitimos hasta 60 minutos.
     timeout-minutes: 60
 
     steps:
 
       - name: Descargar repositorio
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Configurar Python
         uses: actions/setup-python@v5
@@ -49,8 +47,12 @@ jobs:
           git add data/historico_sistema_gasista.csv
 
           if git diff --cached --quiet; then
-            echo "El histórico ya estaba actualizado"
-          else
-            git commit -m "Actualizar histórico del sistema gasista"
-            git push
+            echo "El histórico ya está actualizado"
+            exit 0
           fi
+
+          git commit -m "Actualizar histórico del sistema gasista"
+
+          git pull --rebase origin main
+
+          git push origin main
