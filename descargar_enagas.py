@@ -238,4 +238,312 @@ def extraer_datos(contenido_excel, fecha_solicitada):
             "E8"
         ),
 
-       
+        "Convencional": convertir_numero(
+            hoja["H8"].value,
+            "Convencional",
+            "H8"
+        ),
+
+        "Sector Eléctrico": convertir_numero(
+            hoja["H10"].value,
+            "Sector Eléctrico",
+            "H10"
+        ),
+
+        "Total Salidas": convertir_numero(
+            hoja["E21"].value,
+            "Total Salidas",
+            "E21"
+        ),
+    }
+
+    libro.close()
+
+    return datos
+
+
+# ============================================================
+# GESTIÓN DEL HISTÓRICO
+# ============================================================
+
+def leer_historico():
+
+    registros = {}
+
+    if not HISTORICO.exists():
+
+        print(
+            "No existe todavía histórico."
+        )
+
+        return registros
+
+    with open(
+        HISTORICO,
+        "r",
+        encoding="utf-8-sig",
+        newline=""
+    ) as archivo:
+
+        lector = csv.DictReader(
+            archivo,
+            delimiter=";"
+        )
+
+        for fila in lector:
+
+            fecha = fila.get("Fecha")
+
+            if fecha:
+
+                registros[fecha] = fila
+
+    print(
+        f"Registros existentes en el histórico: "
+        f"{len(registros)}"
+    )
+
+    return registros
+
+
+def guardar_historico(registros):
+
+    CARPETA_DATOS.mkdir(
+        parents=True,
+        exist_ok=True
+    )
+
+    filas_ordenadas = sorted(
+        registros.values(),
+        key=lambda fila: fila["Fecha"]
+    )
+
+    with open(
+        HISTORICO,
+        "w",
+        encoding="utf-8-sig",
+        newline=""
+    ) as archivo:
+
+        escritor = csv.DictWriter(
+            archivo,
+            fieldnames=COLUMNAS,
+            delimiter=";"
+        )
+
+        escritor.writeheader()
+
+        escritor.writerows(
+            filas_ordenadas
+        )
+
+    print()
+    print(
+        "========================================"
+    )
+    print(
+        "HISTÓRICO ACTUALIZADO"
+    )
+    print(
+        "========================================"
+    )
+
+    print(
+        f"Archivo: {HISTORICO}"
+    )
+
+    print(
+        f"Registros totales: "
+        f"{len(filas_ordenadas)}"
+    )
+
+
+# ============================================================
+# DETECCIÓN DE FECHAS QUE FALTAN
+# ============================================================
+
+def obtener_fechas_a_descargar(registros):
+
+    """
+    Busca todas las fechas que faltan entre
+    el 01/01/2025 y hoy.
+
+    De esta forma:
+
+    - Si solamente existe 09/11/2026,
+      descargará todo lo anterior.
+
+    - Si ya existe todo el histórico,
+      solamente descargará el nuevo día.
+
+    - Si falta algún día intermedio,
+      también intentará recuperarlo.
+    """
+
+    hoy = datetime.now().date()
+
+    fechas_a_descargar = []
+
+    fecha_actual = FECHA_INICIO_HISTORICO
+
+    while fecha_actual <= hoy:
+
+        fecha_texto = fecha_actual.strftime(
+            "%Y-%m-%d"
+        )
+
+        if fecha_texto not in registros:
+
+            fechas_a_descargar.append(
+                fecha_actual
+            )
+
+        fecha_actual += timedelta(days=1)
+
+    return fechas_a_descargar
+
+
+# ============================================================
+# PROGRAMA PRINCIPAL
+# ============================================================
+
+def main():
+
+    CARPETA_DATOS.mkdir(
+        parents=True,
+        exist_ok=True
+    )
+
+    print()
+    print(
+        "========================================"
+    )
+    print(
+        "ACTUALIZACIÓN SISTEMA GASISTA ENAGÁS"
+    )
+    print(
+        "========================================"
+    )
+    print()
+
+    # Leer histórico existente
+    registros = leer_historico()
+
+    # Determinar qué fechas faltan realmente
+    fechas_a_descargar = obtener_fechas_a_descargar(
+        registros
+    )
+
+    print()
+
+    if not fechas_a_descargar:
+
+        print(
+            "El histórico ya está completamente "
+            "actualizado."
+        )
+
+        return
+
+    print(
+        f"Fechas pendientes de comprobar: "
+        f"{len(fechas_a_descargar)}"
+    )
+
+    print(
+        f"Primera fecha pendiente: "
+        f"{fechas_a_descargar[0].strftime('%d/%m/%Y')}"
+    )
+
+    print(
+        f"Última fecha pendiente: "
+        f"{fechas_a_descargar[-1].strftime('%d/%m/%Y')}"
+    )
+
+    print()
+
+    sesion = crear_sesion()
+
+    nuevos_registros = 0
+    errores = 0
+
+    for numero, fecha in enumerate(
+        fechas_a_descargar,
+        start=1
+    ):
+
+        print()
+        print(
+            f"[{numero}/{len(fechas_a_descargar)}]"
+        )
+
+        contenido_excel = descargar_excel(
+            sesion,
+            fecha
+        )
+
+        if contenido_excel is None:
+
+            errores += 1
+
+            continue
+
+        try:
+
+            datos = extraer_datos(
+                contenido_excel,
+                fecha
+            )
+
+            registros[
+                datos["Fecha"]
+            ] = datos
+
+            nuevos_registros += 1
+
+            print(
+                f"OK | {datos['Fecha']} | "
+                f"Demanda Nacional: "
+                f"{datos['Demanda Nacional']} | "
+                f"Convencional: "
+                f"{datos['Convencional']} | "
+                f"Sector Eléctrico: "
+                f"{datos['Sector Eléctrico']} | "
+                f"Total Salidas: "
+                f"{datos['Total Salidas']}"
+            )
+
+        except Exception as error:
+
+            errores += 1
+
+            print(
+                f"ERROR procesando "
+                f"{fecha.strftime('%d/%m/%Y')}: "
+                f"{error}"
+            )
+
+        # Pequeña pausa para no saturar
+        # el servidor de Enagás.
+        time.sleep(0.25)
+
+    # Guardamos el CSV una vez terminada
+    # la actualización
+    guardar_historico(
+        registros
+    )
+
+    print()
+    print(
+        f"Nuevos registros incorporados: "
+        f"{nuevos_registros}"
+    )
+
+    print(
+        f"Fechas no disponibles/error: "
+        f"{errores}"
+    )
+
+
+if __name__ == "__main__":
+    main()
