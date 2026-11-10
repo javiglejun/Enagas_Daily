@@ -60,7 +60,7 @@ def descargar_excel(fecha):
 
     nombre = (
         f"Enagas_Sistema_Gasista_"
-        f"{fecha.strftime('%Y-%m-%d')}.xls"
+        f"{fecha.strftime('%Y-%m-%d')}.xlsx"
     )
 
     ruta = CARPETA_DATOS / nombre
