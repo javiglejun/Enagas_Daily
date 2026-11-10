@@ -1,4 +1,4 @@
-name: Descargar datos diarios Enagas
+name: Actualizar histórico del sistema gasista
 
 on:
 
@@ -10,11 +10,19 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: actualizacion-sistema-gasista
+  cancel-in-progress: false
+
 jobs:
 
-  descargar:
+  actualizar:
 
     runs-on: ubuntu-latest
+
+    # La primera ejecución descargará desde 01/01/2025.
+    # Por tanto, permitimos hasta 60 minutos.
+    timeout-minutes: 60
 
     steps:
 
@@ -25,23 +33,24 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+          cache: pip
 
       - name: Instalar dependencias
         run: pip install -r requirements.txt
 
-      - name: Descargar Excel de Enagas
+      - name: Actualizar histórico
         run: python descargar_enagas.py
 
-      - name: Guardar Excel en GitHub
+      - name: Guardar histórico en GitHub
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          git add data/
+          git add data/historico_sistema_gasista.csv
 
           if git diff --cached --quiet; then
-            echo "No hay nuevos ficheros"
+            echo "El histórico ya estaba actualizado"
           else
-            git commit -m "Actualizar datos diarios Enagas"
+            git commit -m "Actualizar histórico del sistema gasista"
             git push
           fi
