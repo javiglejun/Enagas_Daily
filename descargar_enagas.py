@@ -47,13 +47,15 @@ CELDAS = {
     "Convencional": "H8",
     "Sector Eléctrico": "H10",
     "Total Salidas": "E21",
-    "Total Entradas": "E47",
-    "Gas regasificado": "F47",
-    "CCII": "G47",
-    "AASS": "H47",
-    "Yacimientos": "I47",
-    "Transporte biometano": "J47",
-    "Distribución biometano": "K47",
+
+    # Entradas del sistema - fila 48
+    "Total Entradas": "E48",
+    "Gas regasificado": "F48",
+    "CCII": "G48",
+    "AASS": "H48",
+    "Yacimientos": "I48",
+    "Transporte biometano": "J48",
+    "Distribución biometano": "K48",
 }
 
 HEADERS = {
@@ -84,10 +86,6 @@ PAUSA_ENTRE_FECHAS = 0.25
 # ============================================================
 
 def crear_sesion():
-    """
-    Crea una sesión HTTP que se reutiliza durante
-    toda la ejecución.
-    """
 
     sesion = requests.Session()
     sesion.headers.update(HEADERS)
@@ -96,10 +94,6 @@ def crear_sesion():
 
 
 def construir_url(fecha):
-    """
-    Construye la URL del Excel correspondiente
-    a la fecha indicada.
-    """
 
     fecha_texto = fecha.strftime("%d/%m/%Y")
 
@@ -111,14 +105,6 @@ def construir_url(fecha):
 
 
 def es_excel_valido(contenido):
-    """
-    Comprueba que la respuesta descargada tenga
-    realmente formato Excel.
-
-    Los ficheros publicados por Enagás tienen una URL
-    terminada en .xls, pero internamente son archivos
-    XLSX, que comienzan con la firma ZIP 'PK'.
-    """
 
     if contenido is None:
         return False
@@ -130,12 +116,6 @@ def es_excel_valido(contenido):
 
 
 def descargar_excel(sesion, fecha):
-    """
-    Descarga en memoria el Excel de una fecha.
-
-    Realiza hasta tres intentos si se produce
-    un error temporal de conexión.
-    """
 
     url = construir_url(fecha)
 
@@ -197,12 +177,6 @@ def descargar_excel(sesion, fecha):
 # ============================================================
 
 def buscar_fecha_en_excel(hoja, fecha_solicitada):
-    """
-    Busca la fecha del Día de gas dentro del Excel.
-
-    Si no se localiza, utiliza la fecha solicitada
-    en la descarga.
-    """
 
     for fila in hoja.iter_rows():
 
@@ -238,12 +212,6 @@ def buscar_fecha_en_excel(hoja, fecha_solicitada):
 
 
 def convertir_numero(valor, nombre, celda):
-    """
-    Convierte el contenido de una celda en número.
-
-    Admite valores numéricos y textos con coma
-    o punto decimal.
-    """
 
     if valor is None:
 
@@ -297,10 +265,6 @@ def convertir_numero(valor, nombre, celda):
 
 
 def extraer_datos(contenido_excel, fecha_solicitada):
-    """
-    Abre el Excel en memoria y extrae todas
-    las variables configuradas en CELDAS.
-    """
 
     libro = openpyxl.load_workbook(
         BytesIO(contenido_excel),
@@ -345,12 +309,6 @@ def extraer_datos(contenido_excel, fecha_solicitada):
 # ============================================================
 
 def leer_historico():
-    """
-    Lee el CSV histórico existente.
-
-    Las filas se almacenan en un diccionario cuya
-    clave es la fecha, para evitar duplicados.
-    """
 
     registros = {}
 
@@ -409,14 +367,6 @@ def leer_historico():
 
 
 def fila_completa(fila):
-    """
-    Comprueba si una fila contiene todas las columnas
-    y todos los valores requeridos.
-
-    Las filas del histórico antiguo no tienen las nuevas
-    variables, por lo que se marcarán como incompletas
-    y se volverán a descargar una sola vez.
-    """
 
     if not fila:
         return False
@@ -438,16 +388,16 @@ def fila_completa(fila):
 
 
 def obtener_fechas_a_descargar(registros):
+
     """
-    Devuelve todas las fechas ausentes o incompletas
-    entre el 01/01/2025 y hoy.
+    Comprueba todas las fechas desde el 01/01/2025.
 
-    Primera ejecución con las nuevas columnas:
-    vuelve a procesar todo el histórico.
+    Si una fecha no existe o tiene alguna de las
+    nuevas columnas vacía, vuelve a descargar únicamente
+    esa fecha.
 
-    Ejecuciones posteriores:
-    procesa únicamente las fechas nuevas o aquellas
-    que hayan quedado incompletas.
+    Una vez completado todo el histórico, las ejecuciones
+    posteriores solo descargarán los días nuevos.
     """
 
     hoy = datetime.now().date()
@@ -480,10 +430,6 @@ def obtener_fechas_a_descargar(registros):
 # ============================================================
 
 def preparar_fila_para_guardar(fila):
-    """
-    Devuelve únicamente las columnas definitivas
-    y en el orden establecido.
-    """
 
     return {
         columna: fila.get(columna, "")
@@ -492,13 +438,6 @@ def preparar_fila_para_guardar(fila):
 
 
 def guardar_historico(registros):
-    """
-    Guarda el histórico ordenado cronológicamente.
-
-    El archivo utiliza punto y coma como delimitador
-    y UTF-8 con BOM para facilitar su lectura en Excel
-    y Power BI.
-    """
 
     CARPETA_DATOS.mkdir(
         parents=True,
@@ -613,7 +552,9 @@ def main():
     ):
 
         print()
-        print(f"[{numero}/{total_fechas}]")
+        print(
+            f"[{numero}/{total_fechas}]"
+        )
 
         contenido_excel = descargar_excel(
             sesion,
@@ -637,7 +578,9 @@ def main():
                 fecha
             )
 
-            registros[datos["Fecha"]] = datos
+            registros[
+                datos["Fecha"]
+            ] = datos
 
             nuevos_registros += 1
 
@@ -665,7 +608,9 @@ def main():
                 f"{error}"
             )
 
-        time.sleep(PAUSA_ENTRE_FECHAS)
+        time.sleep(
+            PAUSA_ENTRE_FECHAS
+        )
 
     guardar_historico(
         registros
@@ -691,7 +636,10 @@ def main():
         )
 
         for fecha in fechas_sin_fichero:
-            print(f"- {fecha}")
+
+            print(
+                f"- {fecha}"
+            )
 
 
 if __name__ == "__main__":
