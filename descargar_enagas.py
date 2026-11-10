@@ -34,6 +34,14 @@ COLUMNAS = [
     "Convencional",
     "Sector Eléctrico",
     "Total Salidas",
+    "Total Regasificación",
+    "Barcelona",
+    "Cartagena",
+    "Huelva",
+    "BBG",
+    "Sagunto",
+    "Reganosa",
+    "El Musel"
 ]
 
 HEADERS = {
@@ -255,6 +263,54 @@ def extraer_datos(contenido_excel, fecha_solicitada):
             "Total Salidas",
             "E21"
         ),
+
+        "Total Regasificación": convertir_numero(
+            hoja["E31"].value,
+            "Total Regasificación",
+            "E31"
+        ),
+
+        "Barcelona": convertir_numero(
+            hoja["F31"].value,
+            "Barcelona",
+            "F31"
+        ),
+
+         "Cartagena": convertir_numero(
+            hoja["G31"].value,
+            "Cartagena",
+            "G31"
+        ),
+
+         "Huelva": convertir_numero(
+            hoja["G31"].value,
+            "Huelva",
+            "G31"
+        ),
+
+         "BBG": convertir_numero(
+            hoja["I31"].value,
+            "BBG",
+            "I31"
+        ),
+
+         "Sagunto": convertir_numero(
+            hoja["J31"].value,
+            "Sagunto",
+            "J31"
+        ),
+
+         "Reganosa": convertir_numero(
+            hoja["K31"].value,
+            "Reganosa",
+            "K31"
+         ),
+
+           "El Musel": convertir_numero(
+            hoja["L31"].value,
+            "El Musel",
+            "L31"
+         ),
     }
 
     libro.close()
@@ -510,7 +566,23 @@ def main():
                 f"Sector Eléctrico: "
                 f"{datos['Sector Eléctrico']} | "
                 f"Total Salidas: "
-                f"{datos['Total Salidas']}"
+                f"{datos['Total Salidas']} | "
+                f"Total Regasificación: "
+                f"{datos['Total Regasificación']} | "
+                f"Barcelona: "
+                f"{datos['Barcelona']} | "
+                f"Cartagena: "
+                f"{datos['Cartagena']} | "
+                f"Huelva: "
+                f"{datos['Huelva']} | "
+                f"BBG: "
+                f"{datos['BBG']} | "
+                f"Sagunto: "
+                f"{datos['Sagunto']} | "
+                f"Reganosa: "
+                f"{datos['Reganosa']} | "
+                f"El Musel: "
+                f"{datos['El Musel']}"
             )
 
         except Exception as error:
