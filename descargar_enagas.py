@@ -11,7 +11,7 @@ import requests
 
 
 # ============================================================
-# CONFIGURACIÓN
+# CONFIGURACIÓN GENERAL
 # ============================================================
 
 BASE_URL = (
@@ -25,7 +25,6 @@ CARPETA_DATOS = Path("data")
 
 HISTORICO = CARPETA_DATOS / "historico_sistema_gasista.csv"
 
-# El histórico comenzará aquí
 FECHA_INICIO_HISTORICO = date(2025, 1, 1)
 
 COLUMNAS = [
@@ -34,15 +33,28 @@ COLUMNAS = [
     "Convencional",
     "Sector Eléctrico",
     "Total Salidas",
-    "Total Regasificación",
-    "Barcelona",
-    "Cartagena",
-    "Huelva",
-    "BBG",
-    "Sagunto",
-    "Reganosa",
-    "El Musel"
+    "Total Entradas",
+    "Gas regasificado",
+    "CCII",
+    "AASS",
+    "Yacimientos",
+    "Transporte biometano",
+    "Distribución biometano",
 ]
+
+CELDAS = {
+    "Demanda Nacional": "E8",
+    "Convencional": "H8",
+    "Sector Eléctrico": "H10",
+    "Total Salidas": "E21",
+    "Total Entradas": "E47",
+    "Gas regasificado": "F47",
+    "CCII": "G47",
+    "AASS": "H47",
+    "Yacimientos": "I47",
+    "Transporte biometano": "J47",
+    "Distribución biometano": "K47",
+}
 
 HEADERS = {
     "User-Agent": (
@@ -60,12 +72,22 @@ HEADERS = {
     "Referer": "https://www.enagas.es/",
 }
 
+TIMEOUT_SEGUNDOS = 60
+
+MAXIMO_INTENTOS = 3
+
+PAUSA_ENTRE_FECHAS = 0.25
+
 
 # ============================================================
 # CONEXIÓN CON ENAGÁS
 # ============================================================
 
 def crear_sesion():
+    """
+    Crea una sesión HTTP que se reutiliza durante
+    toda la ejecución.
+    """
 
     sesion = requests.Session()
     sesion.headers.update(HEADERS)
@@ -74,6 +96,10 @@ def crear_sesion():
 
 
 def construir_url(fecha):
+    """
+    Construye la URL del Excel correspondiente
+    a la fecha indicada.
+    """
 
     fecha_texto = fecha.strftime("%d/%m/%Y")
 
@@ -85,16 +111,31 @@ def construir_url(fecha):
 
 
 def es_excel_valido(contenido):
+    """
+    Comprueba que la respuesta descargada tenga
+    realmente formato Excel.
+
+    Los ficheros publicados por Enagás tienen una URL
+    terminada en .xls, pero internamente son archivos
+    XLSX, que comienzan con la firma ZIP 'PK'.
+    """
+
+    if contenido is None:
+        return False
 
     if len(contenido) < 1000:
         return False
 
-    # Los archivos descargados tienen extensión .xls,
-    # pero realmente son archivos XLSX (ZIP)
     return contenido.startswith(b"PK")
 
 
 def descargar_excel(sesion, fecha):
+    """
+    Descarga en memoria el Excel de una fecha.
+
+    Realiza hasta tres intentos si se produce
+    un error temporal de conexión.
+    """
 
     url = construir_url(fecha)
 
@@ -102,48 +143,66 @@ def descargar_excel(sesion, fecha):
 
     print(f"Descargando {fecha_texto}")
 
-    try:
+    for intento in range(1, MAXIMO_INTENTOS + 1):
 
-        respuesta = sesion.get(
-            url,
-            timeout=60
-        )
+        try:
 
-    except requests.RequestException as error:
+            respuesta = sesion.get(
+                url,
+                timeout=TIMEOUT_SEGUNDOS
+            )
 
-        print(
-            f"Error de conexión para {fecha_texto}: "
-            f"{error}"
-        )
+        except requests.RequestException as error:
 
-        return None
+            print(
+                f"Error de conexión en el intento "
+                f"{intento}/{MAXIMO_INTENTOS}: {error}"
+            )
 
-    if respuesta.status_code != 200:
+            if intento < MAXIMO_INTENTOS:
+                time.sleep(2 * intento)
 
-        print(
-            f"No disponible {fecha_texto}. "
-            f"HTTP {respuesta.status_code}"
-        )
+            continue
 
-        return None
+        if respuesta.status_code != 200:
 
-    if not es_excel_valido(respuesta.content):
+            print(
+                f"No disponible {fecha_texto}. "
+                f"HTTP {respuesta.status_code}"
+            )
 
-        print(
-            f"No existe un Excel válido para "
-            f"{fecha_texto}"
-        )
+            return None
 
-        return None
+        if not es_excel_valido(respuesta.content):
 
-    return respuesta.content
+            print(
+                f"No existe un Excel válido para "
+                f"{fecha_texto}"
+            )
+
+            return None
+
+        return respuesta.content
+
+    print(
+        f"No se ha podido descargar {fecha_texto} "
+        f"después de {MAXIMO_INTENTOS} intentos."
+    )
+
+    return None
 
 
 # ============================================================
-# EXTRACCIÓN DE DATOS DEL EXCEL
+# EXTRACCIÓN DE DATOS
 # ============================================================
 
 def buscar_fecha_en_excel(hoja, fecha_solicitada):
+    """
+    Busca la fecha del Día de gas dentro del Excel.
+
+    Si no se localiza, utiliza la fecha solicitada
+    en la descarga.
+    """
 
     for fila in hoja.iter_rows():
 
@@ -179,12 +238,25 @@ def buscar_fecha_en_excel(hoja, fecha_solicitada):
 
 
 def convertir_numero(valor, nombre, celda):
+    """
+    Convierte el contenido de una celda en número.
+
+    Admite valores numéricos y textos con coma
+    o punto decimal.
+    """
 
     if valor is None:
 
         raise ValueError(
-            f"La celda {celda} de "
-            f"'{nombre}' está vacía."
+            f"La celda {celda}, correspondiente a "
+            f"'{nombre}', está vacía."
+        )
+
+    if isinstance(valor, bool):
+
+        raise ValueError(
+            f"La celda {celda}, correspondiente a "
+            f"'{nombre}', contiene un valor booleano."
         )
 
     if isinstance(valor, (int, float)):
@@ -196,8 +268,17 @@ def convertir_numero(valor, nombre, celda):
 
     if "," in texto and "." in texto:
 
-        texto = texto.replace(".", "")
-        texto = texto.replace(",", ".")
+        ultima_coma = texto.rfind(",")
+        ultimo_punto = texto.rfind(".")
+
+        if ultima_coma > ultimo_punto:
+
+            texto = texto.replace(".", "")
+            texto = texto.replace(",", ".")
+
+        else:
+
+            texto = texto.replace(",", "")
 
     elif "," in texto:
 
@@ -210,12 +291,16 @@ def convertir_numero(valor, nombre, celda):
     except ValueError as error:
 
         raise ValueError(
-            f"El valor de {nombre} "
-            f"en {celda} no es numérico: {valor}"
+            f"El valor de '{nombre}' en la celda "
+            f"{celda} no es numérico: {valor}"
         ) from error
 
 
 def extraer_datos(contenido_excel, fecha_solicitada):
+    """
+    Abre el Excel en memoria y extrae todas
+    las variables configuradas en CELDAS.
+    """
 
     libro = openpyxl.load_workbook(
         BytesIO(contenido_excel),
@@ -223,114 +308,55 @@ def extraer_datos(contenido_excel, fecha_solicitada):
         read_only=True
     )
 
-    if "Resumen" not in libro.sheetnames:
+    try:
+
+        if "Resumen" not in libro.sheetnames:
+
+            raise ValueError(
+                "El Excel no contiene la hoja 'Resumen'."
+            )
+
+        hoja = libro["Resumen"]
+
+        datos = {
+            "Fecha": buscar_fecha_en_excel(
+                hoja,
+                fecha_solicitada
+            )
+        }
+
+        for nombre, celda in CELDAS.items():
+
+            datos[nombre] = convertir_numero(
+                hoja[celda].value,
+                nombre,
+                celda
+            )
+
+        return datos
+
+    finally:
 
         libro.close()
 
-        raise ValueError(
-            "El Excel no contiene la hoja 'Resumen'."
-        )
-
-    hoja = libro["Resumen"]
-
-    datos = {
-
-        "Fecha": buscar_fecha_en_excel(
-            hoja,
-            fecha_solicitada
-        ),
-
-        "Demanda Nacional": convertir_numero(
-            hoja["E8"].value,
-            "Demanda Nacional",
-            "E8"
-        ),
-
-        "Convencional": convertir_numero(
-            hoja["H8"].value,
-            "Convencional",
-            "H8"
-        ),
-
-        "Sector Eléctrico": convertir_numero(
-            hoja["H10"].value,
-            "Sector Eléctrico",
-            "H10"
-        ),
-
-        "Total Salidas": convertir_numero(
-            hoja["E21"].value,
-            "Total Salidas",
-            "E21"
-        ),
-
-        "Total Regasificación": convertir_numero(
-            hoja["E31"].value,
-            "Total Regasificación",
-            "E31"
-        ),
-
-        "Barcelona": convertir_numero(
-            hoja["F31"].value,
-            "Barcelona",
-            "F31"
-        ),
-
-         "Cartagena": convertir_numero(
-            hoja["G31"].value,
-            "Cartagena",
-            "G31"
-        ),
-
-         "Huelva": convertir_numero(
-            hoja["G31"].value,
-            "Huelva",
-            "G31"
-        ),
-
-         "BBG": convertir_numero(
-            hoja["I31"].value,
-            "BBG",
-            "I31"
-        ),
-
-         "Sagunto": convertir_numero(
-            hoja["J31"].value,
-            "Sagunto",
-            "J31"
-        ),
-
-         "Reganosa": convertir_numero(
-            hoja["K31"].value,
-            "Reganosa",
-            "K31"
-         ),
-
-           "El Musel": convertir_numero(
-            hoja["L31"].value,
-            "El Musel",
-            "L31"
-         ),
-    }
-
-    libro.close()
-
-    return datos
-
 
 # ============================================================
-# GESTIÓN DEL HISTÓRICO
+# LECTURA Y VALIDACIÓN DEL HISTÓRICO
 # ============================================================
 
 def leer_historico():
+    """
+    Lee el CSV histórico existente.
+
+    Las filas se almacenan en un diccionario cuya
+    clave es la fecha, para evitar duplicados.
+    """
 
     registros = {}
 
     if not HISTORICO.exists():
 
-        print(
-            "No existe todavía histórico."
-        )
+        print("No existe todavía el histórico.")
 
         return registros
 
@@ -345,6 +371,26 @@ def leer_historico():
             archivo,
             delimiter=";"
         )
+
+        columnas_existentes = lector.fieldnames or []
+
+        columnas_faltantes = [
+            columna
+            for columna in COLUMNAS
+            if columna not in columnas_existentes
+        ]
+
+        if columnas_faltantes:
+
+            print(
+                "El histórico existente no contiene "
+                "todas las nuevas columnas."
+            )
+
+            print(
+                "Columnas que deben completarse: "
+                + ", ".join(columnas_faltantes)
+            )
 
         for fila in lector:
 
@@ -362,78 +408,46 @@ def leer_historico():
     return registros
 
 
-def guardar_historico(registros):
+def fila_completa(fila):
+    """
+    Comprueba si una fila contiene todas las columnas
+    y todos los valores requeridos.
 
-    CARPETA_DATOS.mkdir(
-        parents=True,
-        exist_ok=True
-    )
+    Las filas del histórico antiguo no tienen las nuevas
+    variables, por lo que se marcarán como incompletas
+    y se volverán a descargar una sola vez.
+    """
 
-    filas_ordenadas = sorted(
-        registros.values(),
-        key=lambda fila: fila["Fecha"]
-    )
+    if not fila:
+        return False
 
-    with open(
-        HISTORICO,
-        "w",
-        encoding="utf-8-sig",
-        newline=""
-    ) as archivo:
+    for columna in COLUMNAS:
 
-        escritor = csv.DictWriter(
-            archivo,
-            fieldnames=COLUMNAS,
-            delimiter=";"
-        )
+        if columna not in fila:
+            return False
 
-        escritor.writeheader()
+        valor = fila.get(columna)
 
-        escritor.writerows(
-            filas_ordenadas
-        )
+        if valor is None:
+            return False
 
-    print()
-    print(
-        "========================================"
-    )
-    print(
-        "HISTÓRICO ACTUALIZADO"
-    )
-    print(
-        "========================================"
-    )
+        if str(valor).strip() == "":
+            return False
 
-    print(
-        f"Archivo: {HISTORICO}"
-    )
+    return True
 
-    print(
-        f"Registros totales: "
-        f"{len(filas_ordenadas)}"
-    )
-
-
-# ============================================================
-# DETECCIÓN DE FECHAS QUE FALTAN
-# ============================================================
 
 def obtener_fechas_a_descargar(registros):
-
     """
-    Busca todas las fechas que faltan entre
-    el 01/01/2025 y hoy.
+    Devuelve todas las fechas ausentes o incompletas
+    entre el 01/01/2025 y hoy.
 
-    De esta forma:
+    Primera ejecución con las nuevas columnas:
+    vuelve a procesar todo el histórico.
 
-    - Si solamente existe 09/11/2026,
-      descargará todo lo anterior.
-
-    - Si ya existe todo el histórico,
-      solamente descargará el nuevo día.
-
-    - Si falta algún día intermedio,
-      también intentará recuperarlo.
+    Ejecuciones posteriores:
+    procesa únicamente las fechas nuevas o aquellas
+    que hayan quedado incompletas.
     """
 
     hoy = datetime.now().date()
@@ -448,7 +462,9 @@ def obtener_fechas_a_descargar(registros):
             "%Y-%m-%d"
         )
 
-        if fecha_texto not in registros:
+        fila = registros.get(fecha_texto)
+
+        if not fila_completa(fila):
 
             fechas_a_descargar.append(
                 fecha_actual
@@ -457,6 +473,79 @@ def obtener_fechas_a_descargar(registros):
         fecha_actual += timedelta(days=1)
 
     return fechas_a_descargar
+
+
+# ============================================================
+# GUARDADO DEL CSV
+# ============================================================
+
+def preparar_fila_para_guardar(fila):
+    """
+    Devuelve únicamente las columnas definitivas
+    y en el orden establecido.
+    """
+
+    return {
+        columna: fila.get(columna, "")
+        for columna in COLUMNAS
+    }
+
+
+def guardar_historico(registros):
+    """
+    Guarda el histórico ordenado cronológicamente.
+
+    El archivo utiliza punto y coma como delimitador
+    y UTF-8 con BOM para facilitar su lectura en Excel
+    y Power BI.
+    """
+
+    CARPETA_DATOS.mkdir(
+        parents=True,
+        exist_ok=True
+    )
+
+    filas_ordenadas = sorted(
+        registros.values(),
+        key=lambda fila: fila["Fecha"]
+    )
+
+    filas_ordenadas = [
+        preparar_fila_para_guardar(fila)
+        for fila in filas_ordenadas
+    ]
+
+    archivo_temporal = HISTORICO.with_suffix(
+        ".csv.tmp"
+    )
+
+    with open(
+        archivo_temporal,
+        "w",
+        encoding="utf-8-sig",
+        newline=""
+    ) as archivo:
+
+        escritor = csv.DictWriter(
+            archivo,
+            fieldnames=COLUMNAS,
+            delimiter=";"
+        )
+
+        escritor.writeheader()
+        escritor.writerows(filas_ordenadas)
+
+    archivo_temporal.replace(HISTORICO)
+
+    print()
+    print("========================================")
+    print("HISTÓRICO ACTUALIZADO")
+    print("========================================")
+    print(f"Archivo: {HISTORICO}")
+    print(
+        f"Registros totales: "
+        f"{len(filas_ordenadas)}"
+    )
 
 
 # ============================================================
@@ -471,21 +560,13 @@ def main():
     )
 
     print()
-    print(
-        "========================================"
-    )
-    print(
-        "ACTUALIZACIÓN SISTEMA GASISTA ENAGÁS"
-    )
-    print(
-        "========================================"
-    )
+    print("========================================")
+    print("ACTUALIZACIÓN SISTEMA GASISTA ENAGÁS")
+    print("========================================")
     print()
 
-    # Leer histórico existente
     registros = leer_historico()
 
-    # Determinar qué fechas faltan realmente
     fechas_a_descargar = obtener_fechas_a_descargar(
         registros
     )
@@ -502,7 +583,7 @@ def main():
         return
 
     print(
-        f"Fechas pendientes de comprobar: "
+        f"Fechas pendientes de procesar: "
         f"{len(fechas_a_descargar)}"
     )
 
@@ -522,6 +603,9 @@ def main():
 
     nuevos_registros = 0
     errores = 0
+    fechas_sin_fichero = []
+
+    total_fechas = len(fechas_a_descargar)
 
     for numero, fecha in enumerate(
         fechas_a_descargar,
@@ -529,9 +613,7 @@ def main():
     ):
 
         print()
-        print(
-            f"[{numero}/{len(fechas_a_descargar)}]"
-        )
+        print(f"[{numero}/{total_fechas}]")
 
         contenido_excel = descargar_excel(
             sesion,
@@ -542,6 +624,10 @@ def main():
 
             errores += 1
 
+            fechas_sin_fichero.append(
+                fecha.strftime("%Y-%m-%d")
+            )
+
             continue
 
         try:
@@ -551,9 +637,7 @@ def main():
                 fecha
             )
 
-            registros[
-                datos["Fecha"]
-            ] = datos
+            registros[datos["Fecha"]] = datos
 
             nuevos_registros += 1
 
@@ -561,33 +645,19 @@ def main():
                 f"OK | {datos['Fecha']} | "
                 f"Demanda Nacional: "
                 f"{datos['Demanda Nacional']} | "
-                f"Convencional: "
-                f"{datos['Convencional']} | "
-                f"Sector Eléctrico: "
-                f"{datos['Sector Eléctrico']} | "
                 f"Total Salidas: "
                 f"{datos['Total Salidas']} | "
-                f"Total Regasificación: "
-                f"{datos['Total Regasificación']} | "
-                f"Barcelona: "
-                f"{datos['Barcelona']} | "
-                f"Cartagena: "
-                f"{datos['Cartagena']} | "
-                f"Huelva: "
-                f"{datos['Huelva']} | "
-                f"BBG: "
-                f"{datos['BBG']} | "
-                f"Sagunto: "
-                f"{datos['Sagunto']} | "
-                f"Reganosa: "
-                f"{datos['Reganosa']} | "
-                f"El Musel: "
-                f"{datos['El Musel']}"
+                f"Total Entradas: "
+                f"{datos['Total Entradas']}"
             )
 
         except Exception as error:
 
             errores += 1
+
+            fechas_sin_fichero.append(
+                fecha.strftime("%Y-%m-%d")
+            )
 
             print(
                 f"ERROR procesando "
@@ -595,26 +665,33 @@ def main():
                 f"{error}"
             )
 
-        # Pequeña pausa para no saturar
-        # el servidor de Enagás.
-        time.sleep(0.25)
+        time.sleep(PAUSA_ENTRE_FECHAS)
 
-    # Guardamos el CSV una vez terminada
-    # la actualización
     guardar_historico(
         registros
     )
 
     print()
     print(
-        f"Nuevos registros incorporados: "
+        f"Registros incorporados o actualizados: "
         f"{nuevos_registros}"
     )
 
     print(
-        f"Fechas no disponibles/error: "
+        f"Fechas no disponibles o con error: "
         f"{errores}"
     )
+
+    if fechas_sin_fichero:
+
+        print()
+        print(
+            "Fechas que se volverán a intentar "
+            "en la próxima ejecución:"
+        )
+
+        for fecha in fechas_sin_fichero:
+            print(f"- {fecha}")
 
 
 if __name__ == "__main__":
