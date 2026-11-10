@@ -49,7 +49,7 @@ CELDAS = {
     "Total Salidas": "E21",
 
     # Entradas del sistema - fila 48
-    "Total Entradas": "E48",
+    "Total Entradas": "E47",
     "Gas regasificado": "F48",
     "CCII": "G48",
     "AASS": "H48",
